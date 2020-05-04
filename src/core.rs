@@ -7,6 +7,23 @@ pub struct Core {
     core: Box<*mut ffi::ie_core_t>,
 }
 
+pub struct Network {
+    name: String,
+}
+
+use std::collections::HashMap;
+impl Network {
+    pub fn get_input_info(self) -> HashMap<String, String> {
+        let mut inputs_map = HashMap::new();
+        inputs_map.insert(String::from("input"), String::from("input"));
+
+        return inputs_map;
+    }
+
+    pub fn get_name(self) -> String {
+        return self.name;
+    }
+}
 
 impl Core {
     pub fn new() -> Core {
@@ -38,6 +55,13 @@ impl Core {
         return devices;
     }
 
+    // TODO: make static or move to a separate entity?
+    pub fn read_network(self, xml_filename: String , bin_filename: String) -> Network {
+        let network = Network{name : String::from("network")};
+
+        return network;
+    }
+
     unsafe fn convert_double_pointer_to_vec(
         data: *mut *mut libc::c_char,
         len: libc::size_t,
@@ -59,5 +83,24 @@ mod tests {
         let devices = core.get_available_devices();
         assert!(!devices.is_empty());
         assert_eq!(String::from("CPU"), devices[0]);
+    }
+
+    #[test]
+    fn read_network_from_IR_and_get_inputs_info() {
+        let core = Core::new();
+        let network = core.read_network(String::from("resnet50.xml"),
+                        String::from("resnet50.bin"));
+        let input_info = network.get_input_info();
+        assert!(input_info.len() > 0);
+    }
+
+    #[test]
+    fn read_network_from_IR_and_get_network_name() {
+        let core = Core::new();
+        let network = core.read_network(String::from("resnet50.xml"),
+                        String::from("resnet50.bin"));
+
+        let network_name = network.get_name();
+        assert_eq!("resnet50", network_name);
     }
 }
