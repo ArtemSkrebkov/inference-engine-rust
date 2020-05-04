@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 inference-engine-sys-rust = {version = "0.1.0", path = "../inference-engine-sys-rust/"}
+libc = "0.2.69"
