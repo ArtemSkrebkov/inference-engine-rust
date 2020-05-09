@@ -34,8 +34,9 @@ impl Core {
             let mut core = Box::<*mut ffi::ie_core_t>::new(mem::zeroed());
             let config_file = CString::new("").unwrap();
             let config_file_ptr = config_file.as_ptr();
-            // TODO: check for return value
-            ffi::ie_core_create(config_file_ptr, &mut *core);
+
+            let status = ffi::ie_core_create(config_file_ptr, &mut *core);
+            Self::check_status(status);
             Core {
                 core: core,
             }
@@ -49,8 +50,9 @@ impl Core {
                 devices : std::ptr::null_mut(),
                 num_devices : 0,
             };
-            // TODO: check for return value
-            ffi::ie_core_get_available_devices(*self.core, &mut available_devices);
+
+            let status = ffi::ie_core_get_available_devices(*self.core, &mut available_devices);
+            Self::check_status(status);
             devices = Self::convert_double_pointer_to_vec(available_devices.devices,
                 available_devices.num_devices as usize).unwrap();
         }
@@ -71,28 +73,27 @@ impl Core {
             // TODO: is it possible to avoid dereferencing of core across the file?
             let status = ffi::ie_core_read_network(*self.core, xml_filename_c_str as *const i8,
                 bin_filename_c_str as *const i8, &mut *ie_network);
-            match status {
-                s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
-                s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
-                s if s == (ffi::IEStatusCode_OK as _) => {},
-                s => panic!("Unknown return value = {}", s),
-            }
+            Self::check_status(status);
 
             let mut ie_network_name : *mut libc::c_char = std::ptr::null_mut();
             let status = ffi::ie_network_get_name(*ie_network, &mut ie_network_name as *mut *mut libc::c_char);
-            match status {
-                s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
-                s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
-                s if s == (ffi::IEStatusCode_OK as _) => {},
-                s => panic!("Unknown return value = {}", s),
-            }
+            Self::check_status(status);
 
             let network_name = Self::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
-            
+
             Network{
                 ie_network: ie_network,
                 name: network_name[0].clone(),
             }
+        }
+    }
+
+    fn check_status(status: ffi::IEStatusCode) {
+        match status {
+            s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
+            s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
+            s if s == (ffi::IEStatusCode_OK as _) => {},
+            s => panic!("Unknown return value = {}", s),
         }
     }
 
