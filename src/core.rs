@@ -2,12 +2,15 @@ extern crate inference_engine_sys_rust as ffi;
 
 use std::mem;
 use std::ffi::CString;
+use std::slice;
+use std::str;
 
 pub struct Core {
     core: Box<*mut ffi::ie_core_t>,
 }
 
 pub struct Network {
+    ie_network: Box<*mut ffi::ie_network_t>,
     name: String,
 }
 
@@ -56,10 +59,41 @@ impl Core {
     }
 
     // TODO: make static or move to a separate entity?
-    pub fn read_network(self, xml_filename: String , bin_filename: String) -> Network {
-        let network = Network{name : String::from("network")};
+    pub fn read_network(self, xml_filename: &str, bin_filename: &str) -> Network {
+        unsafe {
+            // FIXME: looks weird but filenames need to wrapped up to pass to a FFI function
+            let xml_filename = String::from(xml_filename);
+            let bin_filename = String::from(bin_filename);
+            let xml_filename_c_str = xml_filename.as_ptr();
+            let bin_filename_c_str = bin_filename.as_ptr();
 
-        return network;
+            let mut ie_network = Box::<*mut ffi::ie_network_t>::new(mem::zeroed());
+            // TODO: is it possible to avoid dereferencing of core across the file?
+            let status = ffi::ie_core_read_network(*self.core, xml_filename_c_str as *const i8,
+                bin_filename_c_str as *const i8, &mut *ie_network);
+            match status {
+                s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
+                s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
+                s if s == (ffi::IEStatusCode_OK as _) => {},
+                s => panic!("Unknown return value = {}", s),
+            }
+
+            let mut ie_network_name : *mut libc::c_char = std::ptr::null_mut();
+            let status = ffi::ie_network_get_name(*ie_network, &mut ie_network_name as *mut *mut libc::c_char);
+            match status {
+                s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
+                s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
+                s if s == (ffi::IEStatusCode_OK as _) => {},
+                s => panic!("Unknown return value = {}", s),
+            }
+
+            let network_name = Self::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
+            
+            Network{
+                ie_network: ie_network,
+                name: network_name[0].clone(),
+            }
+        }
     }
 
     unsafe fn convert_double_pointer_to_vec(
@@ -82,25 +116,27 @@ mod tests {
         let core = Core::new();
         let devices = core.get_available_devices();
         assert!(!devices.is_empty());
-        assert_eq!(String::from("CPU"), devices[0]);
+        assert_eq!("CPU", devices[0]);
     }
 
     #[test]
     fn read_network_from_IR_and_get_inputs_info() {
         let core = Core::new();
-        let network = core.read_network(String::from("resnet50.xml"),
-                        String::from("resnet50.bin"));
+        let network = core.read_network("test_data/resnet-50.xml",
+                        "test_data/resnet-50.bin");
         let input_info = network.get_input_info();
         assert!(input_info.len() > 0);
     }
 
     #[test]
+    #[ignore]
+    // FIXME: ie_network_get_name returns not a name but something wrong
     fn read_network_from_IR_and_get_network_name() {
         let core = Core::new();
-        let network = core.read_network(String::from("resnet50.xml"),
-                        String::from("resnet50.bin"));
+        let network = core.read_network("test_data/resnet-50.xml",
+                        "test_data/resnet-50.bin");
 
         let network_name = network.get_name();
-        assert_eq!("resnet50", network_name);
+        assert_eq!("ResNet-50", network_name);
     }
 }
