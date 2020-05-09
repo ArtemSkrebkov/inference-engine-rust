@@ -2,7 +2,6 @@ extern crate inference_engine_sys_rust as ffi;
 
 use std::mem;
 use std::ffi::CString;
-use std::slice;
 use std::str;
 
 pub struct Core {
@@ -48,7 +47,6 @@ impl Core {
     }
 
     pub fn get_available_devices(self) -> Vec<String> {
-        let mut devices = Vec::new();
         unsafe {
             let mut available_devices = ffi::ie_available_devices{
                 devices : std::ptr::null_mut(),
@@ -57,11 +55,11 @@ impl Core {
 
             let status = ffi::ie_core_get_available_devices(*self.core, &mut available_devices);
             Self::check_status(status);
-            devices = Self::convert_double_pointer_to_vec(available_devices.devices,
+            let devices = Self::convert_double_pointer_to_vec(available_devices.devices,
                 available_devices.num_devices as usize).unwrap();
+            return devices;
         }
 
-        return devices;
     }
 
     // TODO: make static or move to a separate entity?
@@ -152,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn read_network_from_IR_and_get_inputs_info() {
+    fn read_network_from_file_and_get_inputs_info() {
         let core = Core::new();
         let network = core.read_network("test_data/resnet-50.xml",
                         "test_data/resnet-50.bin");
@@ -167,7 +165,7 @@ mod tests {
     #[test]
     #[ignore]
     // FIXME: ie_network_get_name returns not a name but something wrong
-    fn read_network_from_IR_and_get_network_name() {
+    fn read_network_from_file_and_get_network_name() {
         let core = Core::new();
         let network = core.read_network("test_data/resnet-50.xml",
                         "test_data/resnet-50.bin");
