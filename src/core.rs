@@ -3,6 +3,7 @@ extern crate inference_engine_sys_rust as ffi;
 use std::mem;
 use std::ffi::CString;
 use std::str;
+use std::collections::HashMap;
 
 pub struct Core {
     core: Box<*mut ffi::ie_core_t>,
@@ -19,7 +20,16 @@ pub struct InputInfo {
     pub dims: Vec<usize>,
 }
 
-use std::collections::HashMap;
+pub struct ExecutableNetwork {
+    inputs_info: HashMap<String, InputInfo>,
+}
+
+impl ExecutableNetwork {
+    pub fn get_inputs_info(self) -> HashMap<String, InputInfo> {
+        return self.inputs_info;
+    }
+}
+
 impl Network {
     // TODO: replace getter with a public field?
     pub fn get_inputs_info(self) -> HashMap<String, InputInfo> {
@@ -63,7 +73,7 @@ impl Core {
     }
 
     // TODO: make static or move to a separate entity?
-    pub fn read_network(self, xml_filename: &str, bin_filename: &str) -> Network {
+    pub fn read_network(&self, xml_filename: &str, bin_filename: &str) -> Network {
         unsafe {
             // FIXME: looks weird but filenames need to wrapped up to pass to a FFI function
             let xml_filename = String::from(xml_filename);
@@ -114,6 +124,27 @@ impl Core {
                 inputs_info: inputs_info,
             }
         }
+    }
+
+    pub fn load_network(&self, network: Network, device_name: &str) -> ExecutableNetwork {
+        let config: ffi::ie_config_t = ffi::ie_config{
+            name: std::ptr::null_mut(),
+            next: std::ptr::null_mut(),
+            value: std::ptr::null_mut(),
+        };
+        let device_name = CString::new(device_name).unwrap();
+        let device_name = device_name.as_ptr();
+        unsafe {
+            let mut executable_network: *mut ffi::ie_executable_network_t = mem::zeroed();
+            let status = ffi::ie_core_load_network(*self.core, *network.ie_network,
+                device_name as *const i8,
+                &config as *const ffi::ie_config_t,
+                &mut executable_network as *mut *mut ffi::ie_executable_network_t);
+            Self::check_status(status);
+            ExecutableNetwork {
+                inputs_info: HashMap::new(),
+            }
+        } 
     }
 
     fn check_status(status: ffi::IEStatusCode) {
@@ -172,5 +203,14 @@ mod tests {
 
         let network_name = network.get_name();
         assert_eq!("ResNet-50", network_name);
+    }
+
+    #[test]
+    fn read_network_from_file_and_create_executable_network() {
+        let core = Core::new();
+        let network = core.read_network("test_data/resnet-50.xml",
+                        "test_data/resnet-50.bin");
+        let executable_network = core.load_network(network, "CPU");
+        assert!(executable_network.get_inputs_info().len() == 1);
     }
 }
