@@ -12,15 +12,19 @@ pub struct Core {
 pub struct Network {
     ie_network: Box<*mut ffi::ie_network_t>,
     name: String,
+    inputs_info: HashMap<String, InputInfo>,
+}
+
+#[derive(Clone)]
+pub struct InputInfo {
+    pub dims: Vec<usize>,
 }
 
 use std::collections::HashMap;
 impl Network {
-    pub fn get_input_info(self) -> HashMap<String, String> {
-        let mut inputs_map = HashMap::new();
-        inputs_map.insert(String::from("input"), String::from("input"));
-
-        return inputs_map;
+    // TODO: replace getter with a public field?
+    pub fn get_inputs_info(self) -> HashMap<String, InputInfo> {
+        return self.inputs_info;
     }
 
     pub fn get_name(self) -> String {
@@ -80,10 +84,33 @@ impl Core {
             Self::check_status(status);
 
             let network_name = Self::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
+            
+            let input_name = CString::new("data").unwrap();
+            let input_name = input_name.as_ptr();
+            let mut raw_dims: ffi::dimensions = ffi::dimensions_t{
+                ranks: 0,
+                dims: [0, 0, 0, 0, 0, 0, 0, 0]
+            };
+            let status = ffi::ie_network_get_input_dims(*ie_network,
+                            input_name as *const i8, &mut raw_dims as *mut ffi::dimensions);
+            Self::check_status(status);
+
+            let ranks: usize = raw_dims.ranks as usize;
+            let mut dims = Vec::with_capacity(ranks);
+            for i in 0..ranks {
+                let dim: usize = raw_dims.dims[i] as usize;
+                dims.push(dim);
+            }
+
+            // FIXME: try to use &str (requires to learn lifetime concept)
+            let inputs_info: HashMap<String, InputInfo> = [(String::from("input"),
+                                                            InputInfo{dims: dims})]
+                                                            .iter().cloned().collect();
 
             Network{
                 ie_network: ie_network,
                 name: network_name[0].clone(),
+                inputs_info: inputs_info,
             }
         }
     }
@@ -93,6 +120,7 @@ impl Core {
             s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
             s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
             s if s == (ffi::IEStatusCode_OK as _) => {},
+            s if s == (ffi::IEStatusCode_NOT_FOUND as _) => panic!("NOT_FOUND"),
             s => panic!("Unknown return value = {}", s),
         }
     }
@@ -125,8 +153,10 @@ mod tests {
         let core = Core::new();
         let network = core.read_network("test_data/resnet-50.xml",
                         "test_data/resnet-50.bin");
-        let input_info = network.get_input_info();
+        let input_info = network.get_inputs_info();
         assert!(input_info.len() > 0);
+
+        assert_eq!(vec![1, 3, 224, 224], input_info["input"].dims); 
     }
 
     #[test]
