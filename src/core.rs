@@ -84,9 +84,11 @@ impl Core {
             Self::check_status(status);
 
             let network_name = Self::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
-            
-            let input_name = CString::new("data").unwrap();
-            let input_name = input_name.as_ptr();
+
+            let mut input_name : *mut libc::c_char = std::ptr::null_mut();
+            let status = ffi::ie_network_get_input_name(*ie_network, 0,
+                &mut input_name as *mut *mut libc::c_char);
+            Self::check_status(status);
             let mut raw_dims: ffi::dimensions = ffi::dimensions_t{
                 ranks: 0,
                 dims: [0, 0, 0, 0, 0, 0, 0, 0]
@@ -102,11 +104,12 @@ impl Core {
                 dims.push(dim);
             }
 
+            let input_name = Self::convert_double_pointer_to_vec(&mut input_name as *mut *mut libc::c_char, 1).unwrap();
             // FIXME: try to use &str (requires to learn lifetime concept)
-            let inputs_info: HashMap<String, InputInfo> = [(String::from("input"),
+            let inputs_info: HashMap<String, InputInfo> = [(input_name[0].clone(),
                                                             InputInfo{dims: dims})]
                                                             .iter().cloned().collect();
-
+            // FIXME: need a function to convert raw pointer to Rust string/string slice
             Network{
                 ie_network: ie_network,
                 name: network_name[0].clone(),
@@ -153,10 +156,12 @@ mod tests {
         let core = Core::new();
         let network = core.read_network("test_data/resnet-50.xml",
                         "test_data/resnet-50.bin");
-        let input_info = network.get_inputs_info();
-        assert!(input_info.len() > 0);
-
-        assert_eq!(vec![1, 3, 224, 224], input_info["input"].dims); 
+        let inputs_info = network.get_inputs_info();
+        assert!(inputs_info.len() == 1);
+        for (name, info) in &inputs_info {
+            assert_eq!("data", name);
+            assert_eq!(vec![1, 3, 224, 224], info.dims);
+        }
     }
 
     #[test]
