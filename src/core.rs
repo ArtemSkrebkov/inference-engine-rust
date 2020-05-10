@@ -6,6 +6,17 @@ use std::str;
 use std::collections::HashMap;
 use ndarray::{ArrayBase, Array3, Ix3};
 
+fn check_status(status: ffi::IEStatusCode) {
+    match status {
+        s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
+        s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
+        s if s == (ffi::IEStatusCode_OK as _) => {},
+        s if s == (ffi::IEStatusCode_NOT_FOUND as _) => panic!("NOT_FOUND"),
+        s => panic!("Unknown return value = {}", s),
+    }
+}
+
+
 pub struct Core {
     core: Box<*mut ffi::ie_core_t>,
 }
@@ -27,17 +38,39 @@ pub struct ExecutableNetwork {
 
 impl ExecutableNetwork {
     pub fn create_infer_request(&self) -> InferRequest {
-        InferRequest{}
+        unsafe {
+            let mut ie_infer_request = Box::<*mut ffi::ie_infer_request_t>::new(mem::zeroed());
+            let status = ffi::ie_exec_network_create_infer_request(*self.ie_executable_network,
+                &mut *ie_infer_request);
+            check_status(status);
+            InferRequest{
+                ie_infer_request: ie_infer_request,
+            }
+        }
     }
 }
 
 pub struct InferRequest {
-}
+    ie_infer_request: Box<*mut ffi::ie_infer_request_t>,
+    }
 
 impl InferRequest {
     // template instead of hardcoding particular type
-    pub fn get_blob(&self, name: &str, blob: Array3<f32>) {
+    pub fn get_blob(&self, name: &str) -> Vec<f32>/*ArrayBase<f32, Ix3>*/ {
+        unsafe {
+            let name = CString::new(name).unwrap();
+            let name = name.as_ptr();
+            let mut ie_input_blob = Box::<*mut ffi::ie_blob_t>::new(mem::zeroed());
 
+            let status = ffi::ie_infer_request_get_blob(*self.ie_infer_request,
+                name, &mut *ie_input_blob);
+            check_status(status);
+
+            let mut byte_size = 0;
+            let status = ffi::ie_blob_byte_size(*ie_input_blob, &mut byte_size);
+            check_status(status);
+            vec![0.0; byte_size as usize]
+        }
     }
 }
 
@@ -60,7 +93,7 @@ impl Core {
             let config_file_ptr = config_file.as_ptr();
 
             let status = ffi::ie_core_create(config_file_ptr, &mut *core);
-            Self::check_status(status);
+            check_status(status);
             Core {
                 core: core,
             }
@@ -75,7 +108,7 @@ impl Core {
             };
 
             let status = ffi::ie_core_get_available_devices(*self.core, &mut available_devices);
-            Self::check_status(status);
+            check_status(status);
             let devices = Self::convert_double_pointer_to_vec(available_devices.devices,
                 available_devices.num_devices as usize).unwrap();
             return devices;
@@ -96,25 +129,25 @@ impl Core {
             // TODO: is it possible to avoid dereferencing of core across the file?
             let status = ffi::ie_core_read_network(*self.core, xml_filename_c_str as *const i8,
                 bin_filename_c_str as *const i8, &mut *ie_network);
-            Self::check_status(status);
+            check_status(status);
 
             let mut ie_network_name : *mut libc::c_char = std::ptr::null_mut();
             let status = ffi::ie_network_get_name(*ie_network, &mut ie_network_name as *mut *mut libc::c_char);
-            Self::check_status(status);
+            check_status(status);
 
             let network_name = Self::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
 
             let mut input_name : *mut libc::c_char = std::ptr::null_mut();
             let status = ffi::ie_network_get_input_name(*ie_network, 0,
                 &mut input_name as *mut *mut libc::c_char);
-            Self::check_status(status);
+            check_status(status);
             let mut raw_dims: ffi::dimensions = ffi::dimensions_t{
                 ranks: 0,
                 dims: [0, 0, 0, 0, 0, 0, 0, 0]
             };
             let status = ffi::ie_network_get_input_dims(*ie_network,
                             input_name as *const i8, &mut raw_dims as *mut ffi::dimensions);
-            Self::check_status(status);
+            check_status(status);
 
             let ranks: usize = raw_dims.ranks as usize;
             let mut dims = Vec::with_capacity(ranks);
@@ -151,23 +184,13 @@ impl Core {
                 device_name as *const i8,
                 &config as *const ffi::ie_config_t,
                 &mut *ie_executable_network);
-            Self::check_status(status);
+            check_status(status);
 
-            Self::check_status(status);
+            check_status(status);
             ExecutableNetwork {
                 ie_executable_network: ie_executable_network,
             }
         } 
-    }
-
-    fn check_status(status: ffi::IEStatusCode) {
-        match status {
-            s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
-            s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
-            s if s == (ffi::IEStatusCode_OK as _) => {},
-            s if s == (ffi::IEStatusCode_NOT_FOUND as _) => panic!("NOT_FOUND"),
-            s => panic!("Unknown return value = {}", s),
-        }
     }
 
     unsafe fn convert_double_pointer_to_vec(
@@ -235,7 +258,7 @@ mod tests {
         let executable_network = core.load_network(network, "CPU");
         let infer_request: InferRequest = executable_network.create_infer_request();
 
-        let input_blob = Array3::<f32>::zeros((3, 224, 224));
-        infer_request.get_blob("input", input_blob);
+        let input_blob = infer_request.get_blob("data");
+        assert!(!input_blob.is_empty());
     }
 }
