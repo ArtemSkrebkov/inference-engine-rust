@@ -4,6 +4,7 @@ use std::mem;
 use std::ffi::CString;
 use std::str;
 use std::collections::HashMap;
+use ndarray::{ArrayBase, Array3, Ix3};
 
 pub struct Core {
     core: Box<*mut ffi::ie_core_t>,
@@ -21,12 +22,22 @@ pub struct InputInfo {
 }
 
 pub struct ExecutableNetwork {
-    inputs_info: HashMap<String, InputInfo>,
+    ie_executable_network: Box<*mut ffi::ie_executable_network_t>,
 }
 
 impl ExecutableNetwork {
-    pub fn get_inputs_info(self) -> HashMap<String, InputInfo> {
-        return self.inputs_info;
+    pub fn create_infer_request(&self) -> InferRequest {
+        InferRequest{}
+    }
+}
+
+pub struct InferRequest {
+}
+
+impl InferRequest {
+    // template instead of hardcoding particular type
+    pub fn get_blob(&self, name: &str, blob: Array3<f32>) {
+
     }
 }
 
@@ -135,14 +146,16 @@ impl Core {
         let device_name = CString::new(device_name).unwrap();
         let device_name = device_name.as_ptr();
         unsafe {
-            let mut executable_network: *mut ffi::ie_executable_network_t = mem::zeroed();
+            let mut ie_executable_network = Box::<*mut ffi::ie_executable_network_t>::new(mem::zeroed());
             let status = ffi::ie_core_load_network(*self.core, *network.ie_network,
                 device_name as *const i8,
                 &config as *const ffi::ie_config_t,
-                &mut executable_network as *mut *mut ffi::ie_executable_network_t);
+                &mut *ie_executable_network);
+            Self::check_status(status);
+
             Self::check_status(status);
             ExecutableNetwork {
-                inputs_info: HashMap::new(),
+                ie_executable_network: ie_executable_network,
             }
         } 
     }
@@ -206,11 +219,23 @@ mod tests {
     }
 
     #[test]
-    fn read_network_from_file_and_create_executable_network() {
+    fn reate_executable_network() {
         let core = Core::new();
         let network = core.read_network("test_data/resnet-50.xml",
                         "test_data/resnet-50.bin");
         let executable_network = core.load_network(network, "CPU");
-        assert!(executable_network.get_inputs_info().len() == 1);
+        // TODO: check something?
+    }
+    
+    #[test]
+    fn create_infer_request() {
+        let core = Core::new();
+        let network = core.read_network("test_data/resnet-50.xml",
+                        "test_data/resnet-50.bin");
+        let executable_network = core.load_network(network, "CPU");
+        let infer_request: InferRequest = executable_network.create_infer_request();
+
+        let input_blob = Array3::<f32>::zeros((3, 224, 224));
+        infer_request.get_blob("input", input_blob);
     }
 }
