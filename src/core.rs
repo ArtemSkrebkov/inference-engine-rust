@@ -1,10 +1,9 @@
 extern crate inference_engine_sys_rust as ffi;
 
-use std::mem;
+use std::{mem, str, slice};
 use std::ffi::CString;
-use std::str;
 use std::collections::HashMap;
-use ndarray::{ArrayBase, Array3, Ix3};
+use ndarray::{Array, ArrayD, IxDyn};
 
 fn check_status(status: ffi::IEStatusCode) {
     match status {
@@ -56,7 +55,7 @@ pub struct InferRequest {
 
 impl InferRequest {
     // template instead of hardcoding particular type
-    pub fn get_blob(&self, name: &str) -> Vec<f32>/*ArrayBase<f32, Ix3>*/ {
+    pub fn get_blob(&self, name: &str) -> Array<f32, IxDyn> {
         unsafe {
             let name = CString::new(name).unwrap();
             let name = name.as_ptr();
@@ -69,7 +68,28 @@ impl InferRequest {
             let mut byte_size = 0;
             let status = ffi::ie_blob_byte_size(*ie_input_blob, &mut byte_size);
             check_status(status);
-            vec![0.0; byte_size as usize]
+            
+            let mut ie_dims = ffi::dimensions_t {
+                ranks: 0,
+                dims: [0, 0, 0, 0, 0, 0, 0, 0],
+            };
+            let status = ffi::ie_blob_get_dims(*ie_input_blob, &mut ie_dims);
+            check_status(status);
+            let batch = ie_dims.dims[0] as usize;
+            let channels = ie_dims.dims[1] as usize;
+            let height = ie_dims.dims[2] as usize;
+            let width = ie_dims.dims[3] as usize;
+
+            let mut ie_blob_buffer = ffi::ie_blob_buffer {
+                __bindgen_anon_1: ffi::ie_blob_buffer__bindgen_ty_1 {
+                    buffer: std::ptr::null_mut(),
+                }
+            };
+            let status = ffi::ie_blob_get_buffer(*ie_input_blob, &mut ie_blob_buffer);
+            let mut buffer = ie_blob_buffer.__bindgen_anon_1.buffer;
+            check_status(status);
+            let mut data = unsafe {slice::from_raw_parts_mut(buffer, byte_size as usize)};
+            ArrayD::<f32>::zeros(IxDyn(&[batch, channels, height, width]))
         }
     }
 }
@@ -259,6 +279,6 @@ mod tests {
         let infer_request: InferRequest = executable_network.create_infer_request();
 
         let input_blob = infer_request.get_blob("data");
-        assert!(!input_blob.is_empty());
+        assert_eq!(input_blob.dim(), IxDyn(&[1, 3, 224, 224]));
     }
 }
