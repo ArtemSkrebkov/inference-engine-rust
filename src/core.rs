@@ -59,37 +59,38 @@ impl InferRequest {
         unsafe {
             let name = CString::new(name).unwrap();
             let name = name.as_ptr();
-            let mut ie_input_blob = Box::<*mut ffi::ie_blob_t>::new(mem::zeroed());
+            let mut ie_blob = Box::<*mut ffi::ie_blob_t>::new(mem::zeroed());
 
             let status = ffi::ie_infer_request_get_blob(*self.ie_infer_request,
-                name, &mut *ie_input_blob);
+                name, &mut *ie_blob);
             check_status(status);
 
             let mut byte_size = 0;
-            let status = ffi::ie_blob_byte_size(*ie_input_blob, &mut byte_size);
+            let status = ffi::ie_blob_byte_size(*ie_blob, &mut byte_size);
             check_status(status);
             
             let mut ie_dims = ffi::dimensions_t {
                 ranks: 0,
                 dims: [0, 0, 0, 0, 0, 0, 0, 0],
             };
-            let status = ffi::ie_blob_get_dims(*ie_input_blob, &mut ie_dims);
+            let status = ffi::ie_blob_get_dims(*ie_blob, &mut ie_dims);
             check_status(status);
-            let batch = ie_dims.dims[0] as usize;
-            let channels = ie_dims.dims[1] as usize;
-            let height = ie_dims.dims[2] as usize;
-            let width = ie_dims.dims[3] as usize;
+            let rank = ie_dims.ranks as usize;
+            let mut dims = vec![0 as usize; rank];
+            for (i, dim) in dims.iter_mut().enumerate() {
+                *dim = ie_dims.dims[i] as usize;
+            }
 
             let mut ie_blob_buffer = ffi::ie_blob_buffer {
                 __bindgen_anon_1: ffi::ie_blob_buffer__bindgen_ty_1 {
                     buffer: std::ptr::null_mut(),
                 }
             };
-            let status = ffi::ie_blob_get_buffer(*ie_input_blob, &mut ie_blob_buffer);
+            let status = ffi::ie_blob_get_buffer(*ie_blob, &mut ie_blob_buffer);
             let mut buffer = ie_blob_buffer.__bindgen_anon_1.buffer;
             check_status(status);
             let mut data = unsafe {slice::from_raw_parts_mut(buffer, byte_size as usize)};
-            ArrayD::<f32>::zeros(IxDyn(&[batch, channels, height, width]))
+            ArrayD::<f32>::zeros(IxDyn(&dims))
         }
     }
 }
@@ -262,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn reate_executable_network() {
+    fn create_executable_network() {
         let core = Core::new();
         let network = core.read_network("test_data/resnet-50.xml",
                         "test_data/resnet-50.bin");
@@ -280,5 +281,17 @@ mod tests {
 
         let input_blob = infer_request.get_blob("data");
         assert_eq!(input_blob.dim(), IxDyn(&[1, 3, 224, 224]));
+    }
+
+    #[test]
+    fn get_output_blob() {
+        let core = Core::new();
+        let network = core.read_network("test_data/resnet-50.xml",
+                        "test_data/resnet-50.bin");
+        let executable_network = core.load_network(network, "CPU");
+        let infer_request: InferRequest = executable_network.create_infer_request();
+
+        let output = infer_request.get_blob("prob");
+        assert_eq!(output.dim(), IxDyn(&[1, 1000]));
     }
 }
