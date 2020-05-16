@@ -10,3 +10,5 @@ edition = "2018"
 inference-engine-sys-rust = {version = "0.1.0", path = "../inference-engine-sys-rust/"}
 libc = "0.2.69"
 ndarray = "0.13.1"
+ndarray-image = "0.2.1"
+rulinalg = "0.4.2"

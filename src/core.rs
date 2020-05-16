@@ -3,7 +3,9 @@ extern crate inference_engine_sys_rust as ffi;
 use std::{mem, str, slice};
 use std::ffi::CString;
 use std::collections::HashMap;
-use ndarray::{Array, ArrayD, IxDyn};
+use ndarray::{Array, ArrayD, ArrayViewMut, IxDyn};
+use rulinalg;
+use ndarray_image;
 
 fn check_status(status: ffi::IEStatusCode) {
     match status {
@@ -49,13 +51,14 @@ impl ExecutableNetwork {
     }
 }
 
+
 pub struct InferRequest {
     ie_infer_request: Box<*mut ffi::ie_infer_request_t>,
     }
 
 impl InferRequest {
     // template instead of hardcoding particular type
-    pub fn get_blob(&self, name: &str) -> Array<f32, IxDyn> {
+    pub fn get_blob(&self, name: &str) -> ArrayViewMut<f32, IxDyn> {
         unsafe {
             let name = CString::new(name).unwrap();
             let name = name.as_ptr();
@@ -89,9 +92,15 @@ impl InferRequest {
             let status = ffi::ie_blob_get_buffer(*ie_blob, &mut ie_blob_buffer);
             let mut buffer = ie_blob_buffer.__bindgen_anon_1.buffer;
             check_status(status);
-            let mut data = unsafe {slice::from_raw_parts_mut(buffer, byte_size as usize)};
-            ArrayD::<f32>::zeros(IxDyn(&dims))
+            let mut data: &mut [f32] = unsafe {slice::from_raw_parts_mut(buffer as *mut f32, byte_size as usize)};
+            ArrayViewMut::from_shape(IxDyn(&dims), data).unwrap()
         }
+    }
+
+    pub fn infer(&self) {
+
+        let status = unsafe { ffi::ie_infer_request_infer(*self.ie_infer_request) };
+        check_status(status);
     }
 }
 
@@ -279,8 +288,8 @@ mod tests {
         let executable_network = core.load_network(network, "CPU");
         let infer_request: InferRequest = executable_network.create_infer_request();
 
-        let input_blob = infer_request.get_blob("data");
-        assert_eq!(input_blob.dim(), IxDyn(&[1, 3, 224, 224]));
+        let input = infer_request.get_blob("data");
+        assert_eq!(input.dim(), IxDyn(&[1, 3, 224, 224]));
     }
 
     #[test]
@@ -293,5 +302,53 @@ mod tests {
 
         let output = infer_request.get_blob("prob");
         assert_eq!(output.dim(), IxDyn(&[1, 1000]));
+    }
+    // gratefully throw an error if no blob
+    
+    #[test]
+    fn can_change_input_blob() {
+        let core = Core::new();
+        let network = core.read_network("test_data/resnet-50.xml",
+                        "test_data/resnet-50.bin");
+        let executable_network = core.load_network(network, "CPU");
+        let infer_request: InferRequest = executable_network.create_infer_request();
+        {
+            let mut input = infer_request.get_blob("data");
+            input.fill(1.0);
+        }
+        let input = infer_request.get_blob("data");
+
+        assert_eq!(input[[0, 0, 0, 0]], 1.0);
+    }
+
+    #[test]
+    fn get_correct_inference_results() {
+        let core = Core::new();
+        let network = core.read_network("test_data/resnet-50.xml",
+                        "test_data/resnet-50.bin");
+        let executable_network = core.load_network(network, "CPU");
+        let infer_request: InferRequest = executable_network.create_infer_request();
+
+        let mut input = infer_request.get_blob("data");
+        let input_image = ndarray_image::open_image("test_data/cat.png",
+            ndarray_image::Colors::Bgr).unwrap();
+        // FIXME: move repacking into a helper
+        let dims = input_image.dim();
+        let width = dims.0;
+        let height = dims.1;
+        let channels = dims.2;
+        for c in 0..channels {
+            for h in 0..height {
+                for w in 0..width {
+                    input[[0, c, h, w]] = input_image[[h, w, c]] as f32;
+                }
+            }
+        }
+
+        infer_request.infer();
+        let output = infer_request.get_blob("prob");
+        // FIXME: rulinalg is used only for argmax
+        let argmax = rulinalg::utils::argmax(output.into_slice().unwrap());
+        assert_eq!(argmax.0, 283);
     }
 }
