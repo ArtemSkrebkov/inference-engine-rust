@@ -97,6 +97,33 @@ impl InferRequest {
         }
     }
 
+    pub fn set_blob(&self, name: &str, blob: Array<f32, IxDyn>) {
+        unsafe {
+            let name = CString::new(name).unwrap();
+            let name = name.as_ptr();
+            let mut ie_blob = Box::<*mut ffi::ie_blob_t>::new(mem::zeroed());
+            let raw_dim = blob.raw_dim();
+            let ie_dims = ffi::dimensions_t {
+                ranks: blob.ndim() as u64,
+                dims: [raw_dim[0] as u64, raw_dim[1] as u64, raw_dim[2] as u64, raw_dim[3] as u64, 0, 0, 0, 0],
+            };
+            let ie_tensor_desc = ffi::tensor_desc_t {
+                layout: ffi::layout_e_NCHW,
+                dims: ie_dims,
+                precision: ffi::precision_e_FP32,
+            };
+            let ie_size = (raw_dim[0] * raw_dim[1] * raw_dim[2] * raw_dim[3] * 4) as u64;
+            let mut buffer = blob.into_raw_vec().as_mut_ptr();
+
+            let status = ffi::ie_blob_make_memory_from_preallocated(&ie_tensor_desc, buffer as *mut core::ffi::c_void, ie_size, &mut *ie_blob);
+            check_status(status);
+
+            let status = ffi::ie_infer_request_set_blob(*self.ie_infer_request,
+                name, *ie_blob);
+            check_status(status);
+        }
+    }
+
     pub fn infer(&self) {
 
         let status = unsafe { ffi::ie_infer_request_infer(*self.ie_infer_request) };
@@ -350,5 +377,36 @@ mod tests {
         // FIXME: rulinalg is used only for argmax
         let argmax = rulinalg::utils::argmax(output.into_slice().unwrap());
         assert_eq!(argmax.0, 283);
+    }
+
+    #[test]
+    fn can_set_blob_for_input() {
+        let core = Core::new();
+        let network = core.read_network("test_data/resnet-50.xml",
+                        "test_data/resnet-50.bin");
+        let executable_network = core.load_network(network, "CPU");
+        let infer_request: InferRequest = executable_network.create_infer_request();
+        let input_image = ndarray_image::open_image("test_data/cat.png",
+            ndarray_image::Colors::Bgr).unwrap();
+        // FIXME: move repacking into a helper
+        let dims = input_image.dim();
+        let width = dims.0;
+        let height = dims.1;
+        let channels = dims.2;
+        let mut input = ArrayD::<f32>::zeros(IxDyn(&[1, channels, height, width]));
+        for c in 0..channels {
+            for h in 0..height {
+                for w in 0..width {
+                    input[[0, c, h, w]] = input_image[[h, w, c]] as f32;
+                }
+            }
+        }
+
+        let elem = input[[0, 0, 0, 0]];
+        infer_request.set_blob("data", input);
+
+        let input_from_get = infer_request.get_blob("data");
+
+        assert_eq!(input_from_get[[0, 0, 0, 0]], elem);
     }
 }
