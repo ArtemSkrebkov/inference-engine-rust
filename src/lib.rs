@@ -410,7 +410,6 @@ mod tests {
         assert_eq!(input_from_get[[0, 0, 0, 0]], elem);
     }
 
-    #[test]
     fn get_correct_inference_result_with_set_blob_for_input() {
         let core = Core::new();
         let network = core.read_network("test_data/resnet-50.xml",
@@ -430,7 +429,7 @@ mod tests {
                 for w in 0..width {
                     input[[0, c, h, w]] = input_image[[h, w, c]] as f32;
                 }
-            }
+            }a
         }
 
         let elem = input[[0, 0, 0, 0]];
