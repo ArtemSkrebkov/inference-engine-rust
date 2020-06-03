@@ -90,9 +90,9 @@ impl InferRequest {
                 }
             };
             let status = ffi::ie_blob_get_buffer(*ie_blob, &mut ie_blob_buffer);
-            let mut buffer = ie_blob_buffer.__bindgen_anon_1.buffer;
+            let buffer = ie_blob_buffer.__bindgen_anon_1.buffer;
             check_status(status);
-            let mut data: &mut [f32] = unsafe {slice::from_raw_parts_mut(buffer as *mut f32, byte_size as usize)};
+            let data: &mut [f32] = slice::from_raw_parts_mut(buffer as *mut f32, byte_size as usize);
             ArrayViewMut::from_shape(IxDyn(&dims), data).unwrap()
         }
     }
@@ -113,7 +113,7 @@ impl InferRequest {
                 precision: ffi::precision_e_FP32,
             };
             let ie_size = (raw_dim[0] * raw_dim[1] * raw_dim[2] * raw_dim[3] * 4) as u64;
-            let mut buffer = blob.into_raw_vec().as_mut_ptr();
+            let buffer = blob.into_raw_vec().as_mut_ptr();
 
             let status = ffi::ie_blob_make_memory_from_preallocated(&ie_tensor_desc, buffer as *mut core::ffi::c_void, ie_size, &mut *ie_blob);
             check_status(status);
@@ -303,7 +303,7 @@ mod tests {
         let core = Core::new();
         let network = core.read_network("test_data/resnet-50.xml",
                         "test_data/resnet-50.bin");
-        let executable_network = core.load_network(network, "CPU");
+        let _executable_network = core.load_network(network, "CPU");
         // TODO: check something?
     }
     
@@ -410,6 +410,7 @@ mod tests {
         assert_eq!(input_from_get[[0, 0, 0, 0]], elem);
     }
 
+    #[test]
     fn get_correct_inference_result_with_set_blob_for_input() {
         let core = Core::new();
         let network = core.read_network("test_data/resnet-50.xml",
@@ -424,15 +425,15 @@ mod tests {
         let height = dims.1;
         let channels = dims.2;
         let mut input = ArrayD::<f32>::zeros(IxDyn(&[1, channels, height, width]));
+        // TODO: move to a helper
         for c in 0..channels {
             for h in 0..height {
                 for w in 0..width {
                     input[[0, c, h, w]] = input_image[[h, w, c]] as f32;
                 }
-            }a
+            }
         }
 
-        let elem = input[[0, 0, 0, 0]];
         infer_request.set_blob("data", input);
         infer_request.infer();
         let output = infer_request.get_blob("prob");
