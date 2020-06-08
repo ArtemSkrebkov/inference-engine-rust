@@ -7,8 +7,9 @@ use ndarray::{Array, ArrayD, ArrayViewMut, IxDyn};
 use rulinalg;
 use ndarray_image;
 
-mod infer_request;
-pub use infer_request::InferRequest;
+mod executable_network;
+pub use executable_network::ExecutableNetwork;
+pub use executable_network::InputInfo;
 
 fn check_status(status: ffi::IEStatusCode) {
     match status {
@@ -28,29 +29,6 @@ pub struct Network {
     ie_network: Box<*mut ffi::ie_network_t>,
     name: String,
     inputs_info: HashMap<String, InputInfo>,
-}
-
-#[derive(Clone)]
-pub struct InputInfo {
-    pub dims: Vec<usize>,
-}
-
-pub struct ExecutableNetwork {
-    ie_executable_network: Box<*mut ffi::ie_executable_network_t>,
-}
-
-impl ExecutableNetwork {
-    pub fn create_infer_request(&self) -> InferRequest {
-        unsafe {
-            let mut ie_infer_request = Box::<*mut ffi::ie_infer_request_t>::new(mem::zeroed());
-            let status = ffi::ie_exec_network_create_infer_request(*self.ie_executable_network,
-                &mut *ie_infer_request);
-            check_status(status);
-            InferRequest{
-                ie_infer_request: ie_infer_request,
-            }
-        }
-    }
 }
 
 impl Network {
@@ -187,6 +165,10 @@ impl Core {
 mod tests {
     use super::*;
     use Core;
+
+    //mod executable_network::infer_request;
+    pub use executable_network::infer_request::InferRequest;
+
     #[test]
     fn create_core_and_find_device() {
         let core = Core::new();
