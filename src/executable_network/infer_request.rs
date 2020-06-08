@@ -1,17 +1,8 @@
-use ndarray::{Array, ArrayD, ArrayViewMut, IxDyn};
+use ndarray::{Array, ArrayViewMut, IxDyn};
 use std::ffi::CString;
 use std::{mem, str, slice};
 
-// TODO: dupliction
-fn check_status(status: ffi::IEStatusCode) {
-    match status {
-        s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
-        s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
-        s if s == (ffi::IEStatusCode_OK as _) => {},
-        s if s == (ffi::IEStatusCode_NOT_FOUND as _) => panic!("NOT_FOUND"),
-        s => panic!("Unknown return value = {}", s),
-    }
-}
+use crate::utils;
 
 pub struct InferRequest {
     // TODO: encapsulate this by introducing factory method in executable network
@@ -30,18 +21,18 @@ impl InferRequest {
 
             let status = ffi::ie_infer_request_get_blob(*self.ie_infer_request,
                 name, &mut *ie_blob);
-            check_status(status);
+            utils::check_status(status);
 
             let mut byte_size = 0;
             let status = ffi::ie_blob_byte_size(*ie_blob, &mut byte_size);
-            check_status(status);
+            utils::check_status(status);
             
             let mut ie_dims = ffi::dimensions_t {
                 ranks: 0,
                 dims: [0, 0, 0, 0, 0, 0, 0, 0],
             };
             let status = ffi::ie_blob_get_dims(*ie_blob, &mut ie_dims);
-            check_status(status);
+            utils::check_status(status);
             let rank = ie_dims.ranks as usize;
             let mut dims = vec![0 as usize; rank];
             for (i, dim) in dims.iter_mut().enumerate() {
@@ -55,7 +46,7 @@ impl InferRequest {
             };
             let status = ffi::ie_blob_get_buffer(*ie_blob, &mut ie_blob_buffer);
             let buffer = ie_blob_buffer.__bindgen_anon_1.buffer;
-            check_status(status);
+            utils::check_status(status);
             let data: &mut [f32] = slice::from_raw_parts_mut(buffer as *mut f32, byte_size as usize);
             ArrayViewMut::from_shape(IxDyn(&dims), data).unwrap()
         }
@@ -80,16 +71,16 @@ impl InferRequest {
             let buffer = blob.into_raw_vec().as_mut_ptr();
 
             let status = ffi::ie_blob_make_memory_from_preallocated(&ie_tensor_desc, buffer as *mut core::ffi::c_void, ie_size, &mut *ie_blob);
-            check_status(status);
+            utils::check_status(status);
 
             let status = ffi::ie_infer_request_set_blob(*self.ie_infer_request,
                 name, *ie_blob);
-            check_status(status);
+            utils::check_status(status);
         }
     }
 
     pub fn infer(&self) {
         let status = unsafe { ffi::ie_infer_request_infer(*self.ie_infer_request) };
-        check_status(status);
+        utils::check_status(status);
     }
 }

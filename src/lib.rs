@@ -1,25 +1,13 @@
 extern crate inference_engine_sys_rust as ffi;
 
-use std::{mem, str, slice};
+use std::{mem, str};
 use std::ffi::CString;
 use std::collections::HashMap;
-use ndarray::{Array, ArrayD, ArrayViewMut, IxDyn};
-use rulinalg;
-use ndarray_image;
 
+mod utils;
 mod executable_network;
-pub use executable_network::ExecutableNetwork;
-pub use executable_network::InputInfo;
 
-fn check_status(status: ffi::IEStatusCode) {
-    match status {
-        s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
-        s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
-        s if s == (ffi::IEStatusCode_OK as _) => {},
-        s if s == (ffi::IEStatusCode_NOT_FOUND as _) => panic!("NOT_FOUND"),
-        s => panic!("Unknown return value = {}", s),
-    }
-}
+use executable_network::{ExecutableNetwork, InputInfo};
 
 pub struct Core {
     core: Box<*mut ffi::ie_core_t>,
@@ -50,7 +38,7 @@ impl Core {
             let config_file_ptr = config_file.as_ptr();
 
             let status = ffi::ie_core_create(config_file_ptr, &mut *core);
-            check_status(status);
+            utils::check_status(status);
             Core {
                 core: core,
             }
@@ -65,7 +53,7 @@ impl Core {
             };
 
             let status = ffi::ie_core_get_available_devices(*self.core, &mut available_devices);
-            check_status(status);
+            utils::check_status(status);
             let devices = Self::convert_double_pointer_to_vec(available_devices.devices,
                 available_devices.num_devices as usize).unwrap();
             return devices;
@@ -86,25 +74,25 @@ impl Core {
             // TODO: is it possible to avoid dereferencing of core across the file?
             let status = ffi::ie_core_read_network(*self.core, xml_filename_c_str as *const i8,
                 bin_filename_c_str as *const i8, &mut *ie_network);
-            check_status(status);
+            utils::check_status(status);
 
             let mut ie_network_name : *mut libc::c_char = std::ptr::null_mut();
             let status = ffi::ie_network_get_name(*ie_network, &mut ie_network_name as *mut *mut libc::c_char);
-            check_status(status);
+            utils::check_status(status);
 
             let network_name = Self::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
 
             let mut input_name : *mut libc::c_char = std::ptr::null_mut();
             let status = ffi::ie_network_get_input_name(*ie_network, 0,
                 &mut input_name as *mut *mut libc::c_char);
-            check_status(status);
+            utils::check_status(status);
             let mut raw_dims: ffi::dimensions = ffi::dimensions_t{
                 ranks: 0,
                 dims: [0, 0, 0, 0, 0, 0, 0, 0]
             };
             let status = ffi::ie_network_get_input_dims(*ie_network,
                             input_name as *const i8, &mut raw_dims as *mut ffi::dimensions);
-            check_status(status);
+            utils::check_status(status);
 
             let ranks: usize = raw_dims.ranks as usize;
             let mut dims = Vec::with_capacity(ranks);
@@ -141,9 +129,9 @@ impl Core {
                 device_name as *const i8,
                 &config as *const ffi::ie_config_t,
                 &mut *ie_executable_network);
-            check_status(status);
+            utils::check_status(status);
 
-            check_status(status);
+            utils::check_status(status);
             ExecutableNetwork {
                 ie_executable_network: ie_executable_network,
             }
@@ -164,10 +152,9 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Core;
 
-    //mod executable_network::infer_request;
     pub use executable_network::infer_request::InferRequest;
+    use ndarray::{ArrayD, IxDyn};
 
     #[test]
     fn create_core_and_find_device() {
