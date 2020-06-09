@@ -54,11 +54,10 @@ impl Core {
 
             let status = ffi::ie_core_get_available_devices(*self.core, &mut available_devices);
             utils::check_status(status);
-            let devices = Self::convert_double_pointer_to_vec(available_devices.devices,
+            let devices = utils::convert_double_pointer_to_vec(available_devices.devices,
                 available_devices.num_devices as usize).unwrap();
             return devices;
         }
-
     }
 
     // TODO: make static or move to a separate entity?
@@ -80,7 +79,7 @@ impl Core {
             let status = ffi::ie_network_get_name(*ie_network, &mut ie_network_name as *mut *mut libc::c_char);
             utils::check_status(status);
 
-            let network_name = Self::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
+            let network_name = utils::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
 
             let mut input_name : *mut libc::c_char = std::ptr::null_mut();
             let status = ffi::ie_network_get_input_name(*ie_network, 0,
@@ -101,7 +100,7 @@ impl Core {
                 dims.push(dim);
             }
 
-            let input_name = Self::convert_double_pointer_to_vec(&mut input_name as *mut *mut libc::c_char, 1).unwrap();
+            let input_name = utils::convert_double_pointer_to_vec(&mut input_name as *mut *mut libc::c_char, 1).unwrap();
             // FIXME: try to use &str (requires to learn lifetime concept)
             let inputs_info: HashMap<String, InputInfo> = [(input_name[0].clone(),
                                                             InputInfo{dims: dims})]
@@ -136,16 +135,6 @@ impl Core {
                 ie_executable_network: ie_executable_network,
             }
         } 
-    }
-
-    unsafe fn convert_double_pointer_to_vec(
-        data: *mut *mut libc::c_char,
-        len: libc::size_t,
-    ) -> Result<Vec<String>, std::str::Utf8Error> {
-        std::slice::from_raw_parts(data, len)
-            .iter()
-            .map(|arg| std::ffi::CStr::from_ptr(*arg).to_str().map(ToString::to_string))
-            .collect()
     }
 }
 

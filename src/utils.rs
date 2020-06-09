@@ -9,3 +9,11 @@ pub fn check_status(status: ffi::IEStatusCode) {
         s => panic!("Unknown return value = {}", s),
     }
 }
+
+pub unsafe fn convert_double_pointer_to_vec(data: *mut *mut libc::c_char,
+                    len: libc::size_t) -> Result<Vec<String>, std::str::Utf8Error> {
+    std::slice::from_raw_parts(data, len)
+        .iter()
+        .map(|arg| std::ffi::CStr::from_ptr(*arg).to_str().map(ToString::to_string))
+    .collect()
+}
