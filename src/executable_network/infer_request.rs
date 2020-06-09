@@ -21,7 +21,7 @@ impl InferRequest {
 
             let status = ffi::ie_infer_request_get_blob(*self.ie_infer_request,
                 name, &mut *ie_blob);
-            utils::check_status(status);
+            utils::check_status_with_error_message(status, "InferRequest object is invalid.");
 
             let mut byte_size = 0;
             let status = ffi::ie_blob_byte_size(*ie_blob, &mut byte_size);
@@ -75,7 +75,7 @@ impl InferRequest {
 
             let status = ffi::ie_infer_request_set_blob(*self.ie_infer_request,
                 name, *ie_blob);
-            utils::check_status(status);
+            utils::check_status_with_error_message(status, "InferRequest object is invalid.");
         }
     }
 
@@ -83,4 +83,38 @@ impl InferRequest {
         let status = unsafe { ffi::ie_infer_request_infer(*self.ie_infer_request) };
         utils::check_status(status);
     }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::{ArrayD, IxDyn};
+
+    fn create_invalid_infer_request() -> InferRequest {
+        InferRequest {
+            ie_infer_request : unsafe {
+                Box::<*mut ffi::ie_infer_request_t>::new(mem::zeroed())
+            },
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "GENERAL_ERROR: InferRequest object is invalid.")]
+    fn get_blob_from_invalid_request() {
+        let infer_request = create_invalid_infer_request();
+
+        let _input = infer_request.get_blob("input");
+    }
+
+    #[test]
+    #[should_panic(expected = "GENERAL_ERROR: InferRequest object is invalid.")]
+    fn set_blob_from_invalid_request() {
+        let infer_request = create_invalid_infer_request();
+
+        let input = ArrayD::<f32>::zeros(IxDyn(&[1, 3, 224, 224]));
+        infer_request.set_blob("input", input);
+    }
+    // list of tests to add:
+    // 1. NOT_FOUND if get_blob/set_blob is called using non-valid name
 }

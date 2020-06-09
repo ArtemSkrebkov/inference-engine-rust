@@ -142,7 +142,7 @@ impl Core {
 mod tests {
     use super::*;
 
-    pub use executable_network::infer_request::InferRequest;
+    use executable_network::infer_request::InferRequest;
     use ndarray::{ArrayD, IxDyn};
 
     #[test]
