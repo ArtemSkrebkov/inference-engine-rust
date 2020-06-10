@@ -1,22 +1,13 @@
 extern crate inference_engine_sys_rust as ffi;
 
-use std::{mem, str, slice};
+use std::{mem, str};
 use std::ffi::CString;
 use std::collections::HashMap;
-use ndarray::{Array, ArrayD, ArrayViewMut, IxDyn};
-use rulinalg;
-use ndarray_image;
 
-fn check_status(status: ffi::IEStatusCode) {
-    match status {
-        s if s == (ffi::IEStatusCode_GENERAL_ERROR as _) => panic!("GENERAL_ERROR"),
-        s if s == (ffi::IEStatusCode_UNEXPECTED as _) => panic!("UNEXPECTED"),
-        s if s == (ffi::IEStatusCode_OK as _) => {},
-        s if s == (ffi::IEStatusCode_NOT_FOUND as _) => panic!("NOT_FOUND"),
-        s => panic!("Unknown return value = {}", s),
-    }
-}
+mod utils;
+pub mod executable_network;
 
+use executable_network::{ExecutableNetwork, InputInfo};
 
 pub struct Core {
     core: Box<*mut ffi::ie_core_t>,
@@ -26,109 +17,6 @@ pub struct Network {
     ie_network: Box<*mut ffi::ie_network_t>,
     name: String,
     inputs_info: HashMap<String, InputInfo>,
-}
-
-#[derive(Clone)]
-pub struct InputInfo {
-    pub dims: Vec<usize>,
-}
-
-pub struct ExecutableNetwork {
-    ie_executable_network: Box<*mut ffi::ie_executable_network_t>,
-}
-
-impl ExecutableNetwork {
-    pub fn create_infer_request(&self) -> InferRequest {
-        unsafe {
-            let mut ie_infer_request = Box::<*mut ffi::ie_infer_request_t>::new(mem::zeroed());
-            let status = ffi::ie_exec_network_create_infer_request(*self.ie_executable_network,
-                &mut *ie_infer_request);
-            check_status(status);
-            InferRequest{
-                ie_infer_request: ie_infer_request,
-            }
-        }
-    }
-}
-
-
-pub struct InferRequest {
-    ie_infer_request: Box<*mut ffi::ie_infer_request_t>,
-    }
-
-impl InferRequest {
-    // template instead of hardcoding particular type
-    pub fn get_blob(&self, name: &str) -> ArrayViewMut<f32, IxDyn> {
-        unsafe {
-            let name = CString::new(name).unwrap();
-            let name = name.as_ptr();
-            let mut ie_blob = Box::<*mut ffi::ie_blob_t>::new(mem::zeroed());
-
-            let status = ffi::ie_infer_request_get_blob(*self.ie_infer_request,
-                name, &mut *ie_blob);
-            check_status(status);
-
-            let mut byte_size = 0;
-            let status = ffi::ie_blob_byte_size(*ie_blob, &mut byte_size);
-            check_status(status);
-            
-            let mut ie_dims = ffi::dimensions_t {
-                ranks: 0,
-                dims: [0, 0, 0, 0, 0, 0, 0, 0],
-            };
-            let status = ffi::ie_blob_get_dims(*ie_blob, &mut ie_dims);
-            check_status(status);
-            let rank = ie_dims.ranks as usize;
-            let mut dims = vec![0 as usize; rank];
-            for (i, dim) in dims.iter_mut().enumerate() {
-                *dim = ie_dims.dims[i] as usize;
-            }
-
-            let mut ie_blob_buffer = ffi::ie_blob_buffer {
-                __bindgen_anon_1: ffi::ie_blob_buffer__bindgen_ty_1 {
-                    buffer: std::ptr::null_mut(),
-                }
-            };
-            let status = ffi::ie_blob_get_buffer(*ie_blob, &mut ie_blob_buffer);
-            let buffer = ie_blob_buffer.__bindgen_anon_1.buffer;
-            check_status(status);
-            let data: &mut [f32] = slice::from_raw_parts_mut(buffer as *mut f32, byte_size as usize);
-            ArrayViewMut::from_shape(IxDyn(&dims), data).unwrap()
-        }
-    }
-
-    pub fn set_blob(&self, name: &str, blob: Array<f32, IxDyn>) {
-        unsafe {
-            let name = CString::new(name).unwrap();
-            let name = name.as_ptr();
-            let mut ie_blob = Box::<*mut ffi::ie_blob_t>::new(mem::zeroed());
-            let raw_dim = blob.raw_dim();
-            let ie_dims = ffi::dimensions_t {
-                ranks: blob.ndim() as u64,
-                dims: [raw_dim[0] as u64, raw_dim[1] as u64, raw_dim[2] as u64, raw_dim[3] as u64, 0, 0, 0, 0],
-            };
-            let ie_tensor_desc = ffi::tensor_desc_t {
-                layout: ffi::layout_e_NCHW,
-                dims: ie_dims,
-                precision: ffi::precision_e_FP32,
-            };
-            let ie_size = (raw_dim[0] * raw_dim[1] * raw_dim[2] * raw_dim[3] * 4) as u64;
-            let buffer = blob.into_raw_vec().as_mut_ptr();
-
-            let status = ffi::ie_blob_make_memory_from_preallocated(&ie_tensor_desc, buffer as *mut core::ffi::c_void, ie_size, &mut *ie_blob);
-            check_status(status);
-
-            let status = ffi::ie_infer_request_set_blob(*self.ie_infer_request,
-                name, *ie_blob);
-            check_status(status);
-        }
-    }
-
-    pub fn infer(&self) {
-
-        let status = unsafe { ffi::ie_infer_request_infer(*self.ie_infer_request) };
-        check_status(status);
-    }
 }
 
 impl Network {
@@ -150,7 +38,7 @@ impl Core {
             let config_file_ptr = config_file.as_ptr();
 
             let status = ffi::ie_core_create(config_file_ptr, &mut *core);
-            check_status(status);
+            utils::check_status(status);
             Core {
                 core: core,
             }
@@ -165,12 +53,11 @@ impl Core {
             };
 
             let status = ffi::ie_core_get_available_devices(*self.core, &mut available_devices);
-            check_status(status);
-            let devices = Self::convert_double_pointer_to_vec(available_devices.devices,
+            utils::check_status(status);
+            let devices = utils::convert_double_pointer_to_vec(available_devices.devices,
                 available_devices.num_devices as usize).unwrap();
             return devices;
         }
-
     }
 
     // TODO: make static or move to a separate entity?
@@ -186,25 +73,25 @@ impl Core {
             // TODO: is it possible to avoid dereferencing of core across the file?
             let status = ffi::ie_core_read_network(*self.core, xml_filename_c_str as *const i8,
                 bin_filename_c_str as *const i8, &mut *ie_network);
-            check_status(status);
+            utils::check_status(status);
 
             let mut ie_network_name : *mut libc::c_char = std::ptr::null_mut();
             let status = ffi::ie_network_get_name(*ie_network, &mut ie_network_name as *mut *mut libc::c_char);
-            check_status(status);
+            utils::check_status(status);
 
-            let network_name = Self::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
+            let network_name = utils::convert_double_pointer_to_vec(&mut ie_network_name as *mut *mut libc::c_char, 1).unwrap();
 
             let mut input_name : *mut libc::c_char = std::ptr::null_mut();
             let status = ffi::ie_network_get_input_name(*ie_network, 0,
                 &mut input_name as *mut *mut libc::c_char);
-            check_status(status);
+            utils::check_status(status);
             let mut raw_dims: ffi::dimensions = ffi::dimensions_t{
                 ranks: 0,
                 dims: [0, 0, 0, 0, 0, 0, 0, 0]
             };
             let status = ffi::ie_network_get_input_dims(*ie_network,
                             input_name as *const i8, &mut raw_dims as *mut ffi::dimensions);
-            check_status(status);
+            utils::check_status(status);
 
             let ranks: usize = raw_dims.ranks as usize;
             let mut dims = Vec::with_capacity(ranks);
@@ -213,7 +100,7 @@ impl Core {
                 dims.push(dim);
             }
 
-            let input_name = Self::convert_double_pointer_to_vec(&mut input_name as *mut *mut libc::c_char, 1).unwrap();
+            let input_name = utils::convert_double_pointer_to_vec(&mut input_name as *mut *mut libc::c_char, 1).unwrap();
             // FIXME: try to use &str (requires to learn lifetime concept)
             let inputs_info: HashMap<String, InputInfo> = [(input_name[0].clone(),
                                                             InputInfo{dims: dims})]
@@ -241,37 +128,19 @@ impl Core {
                 device_name as *const i8,
                 &config as *const ffi::ie_config_t,
                 &mut *ie_executable_network);
-            check_status(status);
+            utils::check_status(status);
 
-            check_status(status);
+            utils::check_status(status);
             ExecutableNetwork {
                 ie_executable_network: ie_executable_network,
             }
         } 
-    }
-
-    unsafe fn convert_double_pointer_to_vec(
-        data: *mut *mut libc::c_char,
-        len: libc::size_t,
-    ) -> Result<Vec<String>, std::str::Utf8Error> {
-        std::slice::from_raw_parts(data, len)
-            .iter()
-            .map(|arg| std::ffi::CStr::from_ptr(*arg).to_str().map(ToString::to_string))
-            .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Core;
-    #[test]
-    fn create_core_and_find_device() {
-        let core = Core::new();
-        let devices = core.get_available_devices();
-        assert!(!devices.is_empty());
-        assert_eq!("CPU", devices[0]);
-    }
 
     #[test]
     fn read_network_from_file_and_get_inputs_info() {
@@ -296,149 +165,5 @@ mod tests {
 
         let network_name = network.get_name();
         assert_eq!("ResNet-50", network_name);
-    }
-
-    #[test]
-    fn create_executable_network() {
-        let core = Core::new();
-        let network = core.read_network("test_data/resnet-50.xml",
-                        "test_data/resnet-50.bin");
-        let _executable_network = core.load_network(network, "CPU");
-        // TODO: check something?
-    }
-    
-    #[test]
-    fn create_infer_request() {
-        let core = Core::new();
-        let network = core.read_network("test_data/resnet-50.xml",
-                        "test_data/resnet-50.bin");
-        let executable_network = core.load_network(network, "CPU");
-        let infer_request: InferRequest = executable_network.create_infer_request();
-
-        let input = infer_request.get_blob("data");
-        assert_eq!(input.dim(), IxDyn(&[1, 3, 224, 224]));
-    }
-
-    #[test]
-    fn get_output_blob() {
-        let core = Core::new();
-        let network = core.read_network("test_data/resnet-50.xml",
-                        "test_data/resnet-50.bin");
-        let executable_network = core.load_network(network, "CPU");
-        let infer_request: InferRequest = executable_network.create_infer_request();
-
-        let output = infer_request.get_blob("prob");
-        assert_eq!(output.dim(), IxDyn(&[1, 1000]));
-    }
-    // gratefully throw an error if no blob
-    
-    #[test]
-    fn can_change_input_blob() {
-        let core = Core::new();
-        let network = core.read_network("test_data/resnet-50.xml",
-                        "test_data/resnet-50.bin");
-        let executable_network = core.load_network(network, "CPU");
-        let infer_request: InferRequest = executable_network.create_infer_request();
-        {
-            let mut input = infer_request.get_blob("data");
-            input.fill(1.0);
-        }
-        let input = infer_request.get_blob("data");
-
-        assert_eq!(input[[0, 0, 0, 0]], 1.0);
-    }
-
-    #[test]
-    fn get_correct_inference_results() {
-        let core = Core::new();
-        let network = core.read_network("test_data/resnet-50.xml",
-                        "test_data/resnet-50.bin");
-        let executable_network = core.load_network(network, "CPU");
-        let infer_request: InferRequest = executable_network.create_infer_request();
-
-        let mut input = infer_request.get_blob("data");
-        let input_image = ndarray_image::open_image("test_data/cat.png",
-            ndarray_image::Colors::Bgr).unwrap();
-        // FIXME: move repacking into a helper
-        let dims = input_image.dim();
-        let width = dims.0;
-        let height = dims.1;
-        let channels = dims.2;
-        for c in 0..channels {
-            for h in 0..height {
-                for w in 0..width {
-                    input[[0, c, h, w]] = input_image[[h, w, c]] as f32;
-                }
-            }
-        }
-
-        infer_request.infer();
-        let output = infer_request.get_blob("prob");
-        // FIXME: rulinalg is used only for argmax
-        let argmax = rulinalg::utils::argmax(output.into_slice().unwrap());
-        assert_eq!(argmax.0, 283);
-    }
-
-    #[test]
-    fn can_set_blob_for_input() {
-        let core = Core::new();
-        let network = core.read_network("test_data/resnet-50.xml",
-                        "test_data/resnet-50.bin");
-        let executable_network = core.load_network(network, "CPU");
-        let infer_request: InferRequest = executable_network.create_infer_request();
-        let input_image = ndarray_image::open_image("test_data/cat.png",
-            ndarray_image::Colors::Bgr).unwrap();
-        // FIXME: move repacking into a helper
-        let dims = input_image.dim();
-        let width = dims.0;
-        let height = dims.1;
-        let channels = dims.2;
-        let mut input = ArrayD::<f32>::zeros(IxDyn(&[1, channels, height, width]));
-        for c in 0..channels {
-            for h in 0..height {
-                for w in 0..width {
-                    input[[0, c, h, w]] = input_image[[h, w, c]] as f32;
-                }
-            }
-        }
-
-        let elem = input[[0, 0, 0, 0]];
-        infer_request.set_blob("data", input);
-
-        let input_from_get = infer_request.get_blob("data");
-
-        assert_eq!(input_from_get[[0, 0, 0, 0]], elem);
-    }
-
-    #[test]
-    fn get_correct_inference_result_with_set_blob_for_input() {
-        let core = Core::new();
-        let network = core.read_network("test_data/resnet-50.xml",
-                        "test_data/resnet-50.bin");
-        let executable_network = core.load_network(network, "CPU");
-        let infer_request: InferRequest = executable_network.create_infer_request();
-        let input_image = ndarray_image::open_image("test_data/cat.png",
-            ndarray_image::Colors::Bgr).unwrap();
-        // FIXME: move repacking into a helper
-        let dims = input_image.dim();
-        let width = dims.0;
-        let height = dims.1;
-        let channels = dims.2;
-        let mut input = ArrayD::<f32>::zeros(IxDyn(&[1, channels, height, width]));
-        // TODO: move to a helper
-        for c in 0..channels {
-            for h in 0..height {
-                for w in 0..width {
-                    input[[0, c, h, w]] = input_image[[h, w, c]] as f32;
-                }
-            }
-        }
-
-        infer_request.set_blob("data", input);
-        infer_request.infer();
-        let output = infer_request.get_blob("prob");
-        // FIXME: rulinalg is used only for argmax
-        let argmax = rulinalg::utils::argmax(output.into_slice().unwrap());
-        assert_eq!(argmax.0, 283);
     }
 }
