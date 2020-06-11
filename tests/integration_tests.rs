@@ -1,5 +1,6 @@
 use inference_engine_rust::Core;
 use inference_engine_rust::executable_network::infer_request::InferRequest;
+use inference_engine_rust::utils;
 use ndarray::{ArrayD, IxDyn};
 
 #[test]
@@ -49,7 +50,7 @@ fn can_change_input_blob() {
     let executable_network = core.load_network(network, "CPU");
     let infer_request: InferRequest = executable_network.create_infer_request();
     {
-        let mut input = infer_request.get_blob("data");
+        let mut input = infer_request.get_blob_mut("data");
         input.fill(1.0);
     }
     let input = infer_request.get_blob("data");
@@ -95,7 +96,7 @@ fn get_correct_inference_results() {
     let executable_network = core.load_network(network, "CPU");
     let infer_request: InferRequest = executable_network.create_infer_request();
 
-    let mut input = infer_request.get_blob("data");
+    let mut input = infer_request.get_blob_mut("data");
     let input_image = ndarray_image::open_image("test_data/cat.png",
         ndarray_image::Colors::Bgr).unwrap();
     // FIXME: move repacking into a helper
@@ -113,9 +114,8 @@ fn get_correct_inference_results() {
 
     infer_request.infer();
     let output = infer_request.get_blob("prob");
-    // FIXME: rulinalg is used only for argmax
-    let argmax = rulinalg::utils::argmax(output.into_slice().unwrap());
-    assert_eq!(argmax.0, 283);
+    let argmax = utils::argmax(output.to_slice().unwrap());
+    assert_eq!(argmax[0], 283);
 }
 
 #[test]
@@ -145,7 +145,6 @@ fn get_correct_inference_result_with_set_blob_for_input() {
     infer_request.set_blob("data", input);
     infer_request.infer();
     let output = infer_request.get_blob("prob");
-    // FIXME: rulinalg is used only for argmax
-    let argmax = rulinalg::utils::argmax(output.into_slice().unwrap());
-    assert_eq!(argmax.0, 283);
+    let argmax = utils::argmax(output.to_slice().unwrap());
+    assert_eq!(argmax[0], 283);
 }
