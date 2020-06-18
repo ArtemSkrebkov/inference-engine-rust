@@ -3,8 +3,8 @@ extern crate inference_engine_sys_rust as ffi;
 use std::{mem, str};
 use std::ffi::CString;
 use std::collections::HashMap;
-
-mod utils;
+// TODO make this private
+pub mod utils;
 pub mod executable_network;
 
 use executable_network::{ExecutableNetwork, InputInfo};

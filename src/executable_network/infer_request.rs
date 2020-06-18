@@ -1,4 +1,4 @@
-use ndarray::{Array, ArrayViewMut, IxDyn};
+use ndarray::{Array, ArrayView, ArrayViewMut, IxDyn};
 use std::ffi::CString;
 use std::{mem, str, slice};
 
@@ -13,7 +13,46 @@ pub struct InferRequest {
 
 impl InferRequest {
     // template instead of hardcoding particular type
-    pub fn get_blob(&self, name: &str) -> ArrayViewMut<f32, IxDyn> {
+    pub fn get_blob(&self, name: &str) -> ArrayView<f32, IxDyn> {
+        unsafe {
+            let name = CString::new(name).unwrap();
+            let name = name.as_ptr();
+            let mut ie_blob = Box::<*mut ffi::ie_blob_t>::new(mem::zeroed());
+
+            let status = ffi::ie_infer_request_get_blob(*self.ie_infer_request,
+                name, &mut *ie_blob);
+            utils::check_status_with_error_message(status, "InferRequest object is invalid.");
+
+            let mut byte_size = 0;
+            let status = ffi::ie_blob_byte_size(*ie_blob, &mut byte_size);
+            utils::check_status(status);
+            
+            let mut ie_dims = ffi::dimensions_t {
+                ranks: 0,
+                dims: [0, 0, 0, 0, 0, 0, 0, 0],
+            };
+            let status = ffi::ie_blob_get_dims(*ie_blob, &mut ie_dims);
+            utils::check_status(status);
+            let rank = ie_dims.ranks as usize;
+            let mut dims = vec![0 as usize; rank];
+            for (i, dim) in dims.iter_mut().enumerate() {
+                *dim = ie_dims.dims[i] as usize;
+            }
+
+            let mut ie_blob_buffer = ffi::ie_blob_buffer {
+                __bindgen_anon_1: ffi::ie_blob_buffer__bindgen_ty_1 {
+                    buffer: std::ptr::null_mut(),
+                }
+            };
+            let status = ffi::ie_blob_get_buffer(*ie_blob, &mut ie_blob_buffer);
+            let buffer = ie_blob_buffer.__bindgen_anon_1.buffer;
+            utils::check_status(status);
+            let data: &mut [f32] = slice::from_raw_parts_mut(buffer as *mut f32, byte_size as usize);
+            ArrayView::from_shape(IxDyn(&dims), data).unwrap()
+        }
+    }
+
+    pub fn get_blob_mut(&self, name: &str) -> ArrayViewMut<f32, IxDyn> {
         unsafe {
             let name = CString::new(name).unwrap();
             let name = name.as_ptr();
@@ -51,7 +90,6 @@ impl InferRequest {
             ArrayViewMut::from_shape(IxDyn(&dims), data).unwrap()
         }
     }
-
     pub fn set_blob(&self, name: &str, blob: Array<f32, IxDyn>) {
         unsafe {
             let name = CString::new(name).unwrap();
